@@ -63,7 +63,7 @@ def run_empathize(state: AgentState) -> dict:
         user_message=user_prompt,
         prefer="claude",
         temperature=0.3,
-        max_tokens=2048,
+        max_tokens=4096,
     )
 
     data = parse_json_response(response.text)

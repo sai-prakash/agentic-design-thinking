@@ -91,7 +91,7 @@ def run_test(state: AgentState) -> dict:
         user_message=user_message,
         prefer="claude",
         temperature=0.3,
-        max_tokens=3072,
+        max_tokens=4096,
     )
 
     data = parse_json_response(response.text)

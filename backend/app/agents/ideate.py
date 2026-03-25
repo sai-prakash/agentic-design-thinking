@@ -70,7 +70,7 @@ def run_ideate(state: AgentState) -> dict:
         user_message=user_message,
         prefer="gemini",
         temperature=0.7,
-        max_tokens=4096,
+        max_tokens=8192,
     )
 
     data = parse_json_response(response.text)
