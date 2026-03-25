@@ -26,6 +26,8 @@ class StageOutput(TypedDict):
     confidence: float
     suggestions: list[str]
     timestamp: str
+    tokens_used: int
+    latency_ms: int
 
 
 class AgentState(TypedDict):

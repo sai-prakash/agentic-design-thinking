@@ -6,6 +6,7 @@ Prefers Gemini for fast code generation.
 
 from __future__ import annotations
 
+import re
 import json
 from datetime import datetime, timezone
 
@@ -20,35 +21,35 @@ Your role: Generate a production-quality React component using TypeScript and \
 Tailwind CSS. Channel Stanford's "Build to Think" and IBM's "Restless Reinvention."
 
 CRITICAL CONSTRAINTS:
-- Output must be a single self-contained React component
-- Use only inline Tailwind classes (no external CSS)
-- No imports — the component will run in react-live
-- The component must be a single function that returns JSX
-- Use React.useState, React.useEffect etc. (React is available globally)
-- Must be accessible (ARIA labels, keyboard navigation, semantic HTML)
-- Must handle empty/loading/error states
-- Use modern, clean design with good spacing and typography
+- Output must be a single self-contained React component.
+- Use ONLY inline Tailwind classes (no external CSS).
+- NO import or export statements — the component will run in a react-live environment where React is available globally.
+- The component MUST be a single function declaration or arrow function.
+- Name the component 'PrototypeComponent'.
+- Use React.useState, React.useEffect, etc., prefixed with 'React.' (e.g., React.useState).
+- Avoid any external libraries or custom hooks not provided.
+- Must be fully accessible (ARIA labels, keyboard navigation, semantic HTML).
+- Must handle empty/loading/error states gracefully.
+- Use modern, premium aesthetics (good spacing, subtle shadows, clear typography).
 
 {rag_context}
 
 Respond ONLY with valid JSON matching this schema:
 {{
-  "component_code": "string — full React component as a single function (no imports, no export)",
-  "component_name": "string",
+  "component_code": "string — the full code for 'PrototypeComponent'. DO NOT include imports or exports. Just the function definition.",
+  "component_name": "PrototypeComponent",
   "props_interface": "string — TypeScript interface for props",
-  "usage_example": "string — how to render the component: <ComponentName />",
+  "usage_example": "string — <PrototypeComponent />",
   "dependencies": [],
-  "design_decisions": ["string — why key implementation choices were made"]
+  "design_decisions": ["string — explain key implementation choices"]
 }}
 
-The component_code MUST:
-- Start with: function ComponentName() {{ or const ComponentName = () => {{
-- End with the component rendering JSX
-- Use only Tailwind utility classes for styling
-- NOT use import/export statements
-- NOT reference external modules
-
-Do NOT include any text outside the JSON object. No markdown fences."""
+Important: The component_code will be rendered as:
+```tsx
+{component_code}
+render(<PrototypeComponent />);
+```
+So ensure the component name consistently matches 'PrototypeComponent'."""
 
 
 def run_prototype(state: AgentState) -> dict:
@@ -87,6 +88,32 @@ def run_prototype(state: AgentState) -> dict:
 
     data = parse_json_response(response.text)
 
+    # Robustly clean component_code for react-live
+    code = data.get("component_code", "")
+    if code:
+        # Strip markdown fences
+        code = re.sub(r"^```[a-z]*\s*", "", code, flags=re.MULTILINE | re.IGNORECASE)
+        code = re.sub(r"```$", "", code, flags=re.MULTILINE | re.IGNORECASE)
+        # Strip import statements (LLMs ignore the "no imports" instruction)
+        code = re.sub(
+            r"^\s*import\s+(?:[\s\S]*?\s+from\s+)?['\"][^'\"]*['\"];?\s*$",
+            "", code, flags=re.MULTILINE,
+        )
+        # Strip export keywords (keep the declaration)
+        code = re.sub(r"^\s*export\s+default\s+", "", code, flags=re.MULTILINE)
+        code = re.sub(
+            r"^\s*export\s+(?=(?:function|const|let|var|class)\s)",
+            "", code, flags=re.MULTILINE,
+        )
+        # Strip standalone export lines
+        code = re.sub(
+            r"^\s*export\s+(?:default\s+\w+|\{[^}]*\})\s*;?\s*$",
+            "", code, flags=re.MULTILINE,
+        )
+        # Collapse excessive blank lines
+        code = re.sub(r"\n{3,}", "\n\n", code)
+        data["component_code"] = code.strip()
+
     stage_output: StageOutput = {
         "stage": "prototype",
         "status": "awaiting_review",
@@ -95,6 +122,8 @@ def run_prototype(state: AgentState) -> dict:
         "confidence": _assess_confidence(data),
         "suggestions": [],
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "tokens_used": response.tokens_used,
+        "latency_ms": response.latency_ms,
     }
 
     trace_entry = {
@@ -128,4 +157,4 @@ def _assess_confidence(data: dict) -> float:
         score += 0.1
     if data.get("design_decisions"):
         score += 0.1
-    return round(min(1.0, score), 2)
+    return float(f"{min(1.0, score):.2f}")

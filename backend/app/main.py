@@ -333,6 +333,29 @@ async def loop_back(session_id: str, req: LoopBackRequest):
     return {"status": "loop_back", "target_stage": target, "iteration": state["iteration_count"]}
 
 
+@app.post("/api/retry/{session_id}")
+async def retry_stage(session_id: str):
+    if session_id not in sessions:
+        raise HTTPException(404, "Session not found")
+
+    session = sessions[session_id]
+    state = session.get("state")
+    if not state:
+        raise HTTPException(400, "Pipeline has no state to retry")
+
+    current = session.get("current_stage")
+    if not current:
+        raise HTTPException(400, "No active stage to retry")
+
+    logger.info(f"[{session_id[:8]}] Retrying stage: {current}")
+    session["events"].append({"type": "stage_start", "stage": current, "message": f"Retrying {current}..."})
+    
+    # Re-invoke the graph for the current stage
+    asyncio.create_task(_invoke_and_emit(session_id, None, hint_stage=current))
+
+    return {"status": "retrying", "stage": current}
+
+
 @app.get("/api/state/{session_id}")
 async def get_state(session_id: str):
     if session_id not in sessions:

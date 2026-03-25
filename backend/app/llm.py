@@ -224,8 +224,51 @@ def llm_call(
     raise RuntimeError(f"LLM call failed after {MAX_RETRIES+1} attempts: {last_error}") from last_error
 
 
+def _fix_invalid_json_escapes(text: str) -> str:
+    """Fix invalid backslash escapes that LLMs produce inside JSON strings.
+
+    JSON only allows: \\", \\\\, \\/, \\b, \\f, \\n, \\r, \\t, \\uXXXX.
+    LLMs generating code inside JSON strings often produce invalid sequences
+    like \\s, \\d, \\p, \\w (from regex), \\c, \\a (from class names), etc.
+    We double the backslash so json.loads sees a literal backslash.
+    """
+    # Valid JSON escape chars (after the backslash)
+    valid = set('"\\/' + 'bfnrtu')
+
+    result: list[str] = []
+    i = 0
+    in_string = False
+
+    while i < len(text):
+        ch = text[i]
+
+        if ch == '"' and (i == 0 or text[i - 1] != '\\'):
+            in_string = not in_string
+            result.append(ch)
+            i += 1
+            continue
+
+        if in_string and ch == '\\' and i + 1 < len(text):
+            next_ch = text[i + 1]
+            if next_ch in valid:
+                # Valid escape — pass through as-is
+                result.append(ch)
+                result.append(next_ch)
+                i += 2
+            else:
+                # Invalid escape (e.g. \s, \d, \p) — double the backslash
+                result.append('\\\\')
+                result.append(next_ch)
+                i += 2
+        else:
+            result.append(ch)
+            i += 1
+
+    return ''.join(result)
+
+
 def parse_json_response(raw_text: str) -> dict:
-    """Parse JSON from LLM response — handles fences, smart quotes, truncation."""
+    """Parse JSON from LLM response — handles fences, smart quotes, invalid escapes."""
     text = raw_text.strip()
 
     # Replace smart quotes and other unicode that breaks JSON
@@ -235,24 +278,37 @@ def parse_json_response(raw_text: str) -> dict:
 
     attempts: list[tuple[str, str]] = []
 
+    def _try_parse(candidate: str, label: str) -> dict | None:
+        """Try json.loads, then retry with escape-fixing if it fails."""
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as e:
+            if "\\escape" in str(e).lower() or "escape" in str(e).lower():
+                # Invalid escape — fix and retry
+                try:
+                    fixed = _fix_invalid_json_escapes(candidate)
+                    return json.loads(fixed)
+                except json.JSONDecodeError as e2:
+                    attempts.append((label, f"original: {e}; after escape fix: {e2}"))
+                    return None
+            attempts.append((label, str(e)))
+            return None
+
     # 1. Direct parse
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
-        attempts.append(("direct", str(e)))
+    result = _try_parse(text, "direct")
+    if result is not None:
+        return result
 
     # 2. Extract from markdown code fence
     match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if match:
-        try:
-            return json.loads(match.group(1).strip())
-        except json.JSONDecodeError as e:
-            attempts.append(("fence", str(e)))
+        result = _try_parse(match.group(1).strip(), "fence")
+        if result is not None:
+            return result
 
     # 3. Find outermost { ... } — greedy match for the last }
     brace_start = text.find("{")
     if brace_start != -1:
-        # Find the matching closing brace by counting
         depth = 0
         end = -1
         in_string = False
@@ -280,10 +336,9 @@ def parse_json_response(raw_text: str) -> dict:
 
         if end != -1:
             candidate = text[brace_start : end + 1]
-            try:
-                return json.loads(candidate)
-            except json.JSONDecodeError as e:
-                attempts.append(("brace_match", str(e)))
+            result = _try_parse(candidate, "brace_match")
+            if result is not None:
+                return result
 
     detail = "; ".join(f"{m}: {e}" for m, e in attempts)
     raise ValueError(

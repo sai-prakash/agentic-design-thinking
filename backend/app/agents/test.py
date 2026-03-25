@@ -104,6 +104,8 @@ def run_test(state: AgentState) -> dict:
         "confidence": _assess_confidence(data),
         "suggestions": data.get("fix_suggestions", []),
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "tokens_used": response.tokens_used,
+        "latency_ms": response.latency_ms,
     }
 
     trace_entry = {

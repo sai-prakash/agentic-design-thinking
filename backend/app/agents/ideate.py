@@ -83,6 +83,8 @@ def run_ideate(state: AgentState) -> dict:
         "confidence": _assess_confidence(data),
         "suggestions": [],
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "tokens_used": response.tokens_used,
+        "latency_ms": response.latency_ms,
     }
 
     trace_entry = {
