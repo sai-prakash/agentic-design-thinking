@@ -39,8 +39,9 @@ export interface TraceEntry {
   latency_ms: number;
 }
 
-export type SSEEvent = 
+export type SSEEvent =
   | { type: "stage_start"; stage: StageName; message: string }
+  | { type: "stage_progress"; stage: StageName; message: string; elapsed_seconds: number }
   | { type: "stage_complete"; stage: StageName; data: StageOutput }
   | { type: "awaiting_review"; stage: StageName }
   | { type: "stage_approved"; stage: StageName }

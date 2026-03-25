@@ -270,6 +270,19 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
           );
           break;
 
+        case "stage_progress":
+          // Update the last agent message with the progress text
+          for (let i = newMessages.length - 1; i >= 0; i--) {
+            if (newMessages[i].role === "agent" && newMessages[i].stage === event.stage) {
+              newMessages[i] = {
+                ...newMessages[i],
+                content: event.message || `Still working on **${STAGE_LABELS[event.stage]}**...`,
+              };
+              break;
+            }
+          }
+          break;
+
         case "stage_complete":
           newState[event.stage] = event.data;
           newState.current_stage = event.stage;

@@ -26,7 +26,5 @@ Thumbs.db
 .idea/
 *.swp
 
-*.md
-!README.md
 
 .claude/

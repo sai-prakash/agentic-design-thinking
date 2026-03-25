@@ -110,6 +110,29 @@ def run_prototype(state: AgentState) -> dict:
             r"^\s*export\s+(?:default\s+\w+|\{[^}]*\})\s*;?\s*$",
             "", code, flags=re.MULTILINE,
         )
+        # Enforce component name: rename whatever the LLM used to PrototypeComponent
+        # This guarantees the react-live render(<PrototypeComponent />) call always works.
+        # Match: function SomeName( or const SomeName = (  or const SomeName: ... = (
+        fn_match = re.search(
+            r"(?:^|\n)\s*function\s+([A-Z][A-Za-z0-9]*)\s*\(",
+            code,
+        )
+        arrow_match = re.search(
+            r"(?:^|\n)\s*(?:const|let|var)\s+([A-Z][A-Za-z0-9]*)\s*(?::[^=]*)?\s*=",
+            code,
+        )
+        detected_name = (fn_match.group(1) if fn_match else None) or (
+            arrow_match.group(1) if arrow_match else None
+        )
+        if detected_name and detected_name != "PrototypeComponent":
+            # Replace all occurrences of the detected name with PrototypeComponent
+            code = re.sub(
+                rf"\b{re.escape(detected_name)}\b",
+                "PrototypeComponent",
+                code,
+            )
+            data["component_name"] = "PrototypeComponent"
+
         # Collapse excessive blank lines
         code = re.sub(r"\n{3,}", "\n\n", code)
         data["component_code"] = code.strip()

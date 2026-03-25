@@ -97,6 +97,15 @@ def _find_new_stage(old_snap: dict[str, str | None], new_state: dict) -> str | N
     return None
 
 
+STAGE_PROGRESS_MESSAGES = {
+    "empathize": ["Researching user personas...", "Building empathy map...", "Identifying pain points..."],
+    "define": ["Crafting POV statement...", "Generating HMW questions...", "Defining Hills..."],
+    "ideate": ["Brainstorming variants...", "Sketching wireframes...", "Evaluating concepts..."],
+    "prototype": ["Scaffolding component...", "Applying Tailwind styles...", "Adding accessibility attributes...", "Polishing interactions..."],
+    "test": ["Running WCAG audit...", "Evaluating UX fit...", "Scoring overall quality..."],
+}
+
+
 async def _invoke_and_emit(session_id: str, input_state: dict | None, hint_stage: str | None = None) -> None:
     """Invoke the graph and emit SSE events for whatever stage completes."""
     session = sessions[session_id]
@@ -113,12 +122,35 @@ async def _invoke_and_emit(session_id: str, input_state: dict | None, hint_stage
             "message": STAGE_MESSAGES.get(hint_stage, "Processing..."),
         })
 
+    # Emit progress heartbeats every 2s while the LLM call runs
+    done = asyncio.Event()
+
+    async def _progress_heartbeat():
+        msgs = STAGE_PROGRESS_MESSAGES.get(hint_stage or "", ["Processing..."])
+        idx = 0
+        elapsed = 0
+        while not done.is_set():
+            await asyncio.sleep(2)
+            if done.is_set():
+                break
+            elapsed += 2
+            events.append({
+                "type": "stage_progress",
+                "stage": hint_stage or "unknown",
+                "message": msgs[idx % len(msgs)],
+                "elapsed_seconds": elapsed,
+            })
+            idx += 1
+
+    progress_task = asyncio.create_task(_progress_heartbeat()) if hint_stage else None
+
     try:
         result = await asyncio.to_thread(
             pipeline.invoke,
             input_state,
             _thread_config(session_id),
         )
+        done.set()
         session["state"] = result
 
         completed = _find_new_stage(old_snap, result)
@@ -145,9 +177,14 @@ async def _invoke_and_emit(session_id: str, input_state: dict | None, hint_stage
             events.append({"type": "pipeline_complete", "final_state": result})
 
     except Exception as e:
+        done.set()
         stage = hint_stage or "unknown"
         logger.error(f"[{session_id[:8]}] Error in {stage}: {e}", exc_info=True)
         events.append({"type": "error", "stage": stage, "message": str(e)})
+    finally:
+        done.set()  # ensure heartbeat stops even on unexpected paths
+        if progress_task:
+            progress_task.cancel()
 
 
 # ---------------------------------------------------------------------------
