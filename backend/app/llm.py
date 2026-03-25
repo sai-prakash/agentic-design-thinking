@@ -98,6 +98,7 @@ def _call_gemini(
             system_instruction=system_prompt,
             temperature=temperature,
             max_output_tokens=max_tokens,
+            response_mime_type="application/json",
         ),
     )
     elapsed_ms = int(time.time() * 1000) - start_ms
@@ -299,10 +300,18 @@ def parse_json_response(raw_text: str) -> dict:
     if result is not None:
         return result
 
-    # 2. Extract from markdown code fence
+    # 2. Extract from markdown code fence (closed or unclosed)
     match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if match:
         result = _try_parse(match.group(1).strip(), "fence")
+        if result is not None:
+            return result
+
+    # 2b. Unclosed fence (truncated response) — strip opening fence and parse remainder
+    match_open = re.match(r"```(?:json)?\s*", text)
+    if match_open:
+        remainder = text[match_open.end():]
+        result = _try_parse(remainder.strip(), "unclosed_fence")
         if result is not None:
             return result
 
