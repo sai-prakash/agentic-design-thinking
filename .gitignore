@@ -27,5 +27,6 @@ Thumbs.db
 *.swp
 
 *.md
+!README.md
 
 .claude/
